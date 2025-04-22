@@ -13,6 +13,7 @@ interface ITaxToken {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function allowance(address owner, address spender) external view returns (uint256);
     function excludeFromTax(address account) external;
+    function burn (uint256 amount) external;
 }
 
 contract Geode is ERC20, Ownable, ReentrancyGuard, Pausable {
@@ -107,25 +108,39 @@ contract Geode is ERC20, Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * @notice Withdraw tax tokens by burning wrapped tokens
-     * @param _shares Amount of wrapped tokens to burn
-     */
-    function withdraw(uint256 _shares) external nonReentrant whenNotPaused {
-        require(_shares > 0, "Cannot withdraw 0");
-        require(balanceOf(msg.sender) >= _shares, "Insufficient balance");
-        
-        // Calculate tokens to return
-        uint256 taxTokenAmount = _getTokensForShares(_shares);
-        require(taxTokenAmount > 0, "Amount calculation error");
-        
-        // Burn wrapped tokens first (checks-effects-interactions pattern)
-        _burn(msg.sender, _shares);
-        
-        // Transfer tax tokens back to user
-        SafeERC20.safeTransfer(IERC20(address(taxToken)), msg.sender, taxTokenAmount);
-        
-        emit Withdraw(msg.sender, _shares, taxTokenAmount);
-    }
+ * @notice Withdraw tax tokens by burning wrapped tokens
+ * @param _shares Amount of wrapped tokens to burn
+ */
+function withdraw(uint256 _shares) external nonReentrant whenNotPaused {
+    require(_shares > 0, "Cannot withdraw 0");
+    require(balanceOf(msg.sender) >= _shares, "Insufficient balance");
+    
+    // Calculate total tokens to return before fees
+    uint256 totalTokenAmount = _getTokensForShares(_shares);
+    require(totalTokenAmount > 0, "Amount calculation error");
+    
+    // Define withdrawal fee percentages using local variables (in basis points)
+    uint256 totalFeePercent = 1000; // 10% total fee
+    uint256 burnFeePercent = 200;   // 2% is burned
+    
+    // Calculate withdrawal fees
+    uint256 totalFeeAmount = (totalTokenAmount * totalFeePercent) / 10000;
+    uint256 burnFeeAmount = (totalTokenAmount * burnFeePercent) / 10000;
+    
+    // Amount user will actually receive
+    uint256 finalUserAmount = totalTokenAmount - totalFeeAmount;
+    
+    // Burn wrapper tokens 
+    _burn(msg.sender, _shares);
+    
+    // Burn the fee tokens 
+    taxToken.burn(burnFeeAmount);
+    
+    // Transfer tax tokens back to user
+    SafeERC20.safeTransfer(IERC20(address(taxToken)), msg.sender, finalUserAmount);
+    
+    emit Withdraw(msg.sender, _shares, finalUserAmount);
+}
 
     /**
      * @notice Get the current exchange rate between wrapper and tax token
