@@ -5,26 +5,21 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract TaxToken is ERC20, Ownable {
-    uint256 public taxPercentage; // Tax percentage (in basis points, 100 = 1%)
+    uint256 public constant TAX_PERCENTAGE = 1000; // 10% tax (in basis points)
     address public taxCollector; // Address where tax is sent
     mapping(address => bool) public excludedFromTax; // Addresses excluded from tax
 
- 
     event TaxCollectorUpdated(address newTaxCollector);
     event AddressExcludedFromTax(address excludedAddress);
-    event AddressIncludedInTax(address includedAddress);
 
     constructor(
         string memory name,
         string memory symbol,
         uint256 initialSupply,
-        uint256 _taxPercentage,
         address _taxCollector
     ) ERC20(name, symbol) Ownable(msg.sender) {
-        require(_taxPercentage <= 2000, "Tax cannot exceed 20%");
         require(_taxCollector != address(0), "Tax collector cannot be zero address");
         
-        taxPercentage = _taxPercentage;
         taxCollector = _taxCollector;
         
         // Exclude owner and tax collector from tax
@@ -32,18 +27,16 @@ contract TaxToken is ERC20, Ownable {
         excludedFromTax[_taxCollector] = true;
         
         // Mint initial supply to the owner
-        _mint(msg.sender, initialSupply * 10 ** decimals());
+        _mint(msg.sender, initialSupply);
     }
-
-    function setTaxPercentage(uint256 _taxPercentage) external onlyOwner {
-        require(_taxPercentage <= 2000, "Tax cannot exceed 20%");
-        taxPercentage = _taxPercentage;
-        emit TaxPercentageUpdated(_taxPercentage);
-    }
-
+ 
     function setTaxCollector(address _taxCollector) external onlyOwner {
         require(_taxCollector != address(0), "Tax collector cannot be zero address");
+        if (taxCollector == msg.sender) {
+            excludedFromTax[msg.sender] = false;
+            }
         taxCollector = _taxCollector;
+       
         emit TaxCollectorUpdated(_taxCollector);
     }
 
@@ -52,32 +45,45 @@ contract TaxToken is ERC20, Ownable {
         emit AddressExcludedFromTax(account);
     }
 
-    function includeInTax(address account) external onlyOwner {
-        excludedFromTax[account] = false;
-        emit AddressIncludedInTax(account);
+    // Override the transfer and transferFrom functions instead of _transfer
+    function transfer(address to, uint256 amount) public virtual override returns (bool) {
+        address owner = _msgSender();
+        _transferWithTax(owner, to, amount);
+        return true;
     }
 
-    function _transfer(
-        address from,
-        address to,
-        uint256 amount
-    ) internal  virtual override {
-        // If either sender or receiver is excluded from tax, or tax is 0, process normal transfer
-        if (excludedFromTax[from] || excludedFromTax[to] || taxPercentage == 0) {
-            super._transfer(from, to, amount);
+    function transferFrom(address from, address to, uint256 amount) public virtual override returns (bool) {
+        address spender = _msgSender();
+        _spendAllowance(from, spender, amount);
+        _transferWithTax(from, to, amount);
+        return true;
+    }
+
+    // Create a new internal function for transfers with tax
+    function _transferWithTax(address from, address to, uint256 amount) internal {
+        require(from != address(0), "Transfer from the zero address");
+        require(to != address(0), "Transfer to the zero address");
+
+        // If either sender or receiver is excluded from tax, process normal transfer
+        if (excludedFromTax[from] || excludedFromTax[to]) {
+            _transfer(from, to, amount);
             return;
         }
 
-        // Calculate tax amount
-        uint256 taxAmount = (amount * taxPercentage) / 10000;
+        // Calculate tax amount (10% of transfer amount)
+        uint256 taxAmount = (amount * TAX_PERCENTAGE) / 10000;
         uint256 transferAmount = amount - taxAmount;
 
         // Transfer tax to collector
-        if (taxAmount > 0) {
-            super._transfer(from, taxCollector, taxAmount);
-        }
+        _transfer(from, taxCollector, taxAmount);
 
         // Transfer remaining amount to recipient
-        super._transfer(from, to, transferAmount);
+        _transfer(from, to, transferAmount);
     }
+
+        function burn (uint256 amount) external {
+            address user = msg.sender;
+            _burn(user, amount);
+         }
+
 }
