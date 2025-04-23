@@ -6,6 +6,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "./Support/SafeMath.sol";
 import "./Geode.sol";
 import "./IStrategy.sol";    
+import "./IOracle.sol";
 
 // The Sonic IndeX Geode Miner is a fork of 0xDao Garden by 0xDaov1
 // The biggest change made from SushiSwap is using per second instead of per block for rewards
@@ -45,14 +46,17 @@ contract GeodeMiner is Ownable {
     }
 
     // such a cool token!
-    Geode public Geode;
+    Geode public geode;
     address multiSig;
     // Geode tokens created per second.
     uint256 public immutable GeodePerSecond;
     
     uint256 public feeToDAO = 100; // 1% deposit fee
     uint256 public constant MaxAllocPoint = 4000;
+    uint256 public  minClaimThreshold;
     uint256 public ClaimFee;
+    bool public feeOnClaimEnabled;
+    IOracle public geodeOracle;
 
     // Info of each pool.
     PoolInfo[] public poolInfo;
@@ -75,7 +79,7 @@ contract GeodeMiner is Ownable {
         uint256 _startTime,
         address _multiSig
     ) Ownable(msg.sender){
-        Geode = _Geode;
+        geode = _Geode;
         GeodePerSecond = _GeodePerSecond;
         startTime = _startTime;
         multiSig = _multiSig;
@@ -133,7 +137,7 @@ contract GeodeMiner is Ownable {
     }
 
     // View function to see pending Geodes on frontend.
-    function pendingGeode(uint256 _pid, address _user) external returns (uint256) {
+    function pendingGeode(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
         uint256 accGeodePerShare = pool.accGeodePerShare;
@@ -175,8 +179,6 @@ contract GeodeMiner is Ownable {
         uint256 multiplier = getMultiplier(pool.lastRewardTime, block.timestamp);
         uint256 GeodeReward = multiplier.mul(GeodePerSecond).mul(pool.allocPoint).div(totalAllocPoint);
 
-        
-        Geode.mint(address(this), GeodeReward);
 
         pool.accGeodePerShare = pool.accGeodePerShare.add(GeodeReward.mul(1e12).div(lpSupply));
         pool.lastRewardTime = block.timestamp;
@@ -252,7 +254,7 @@ contract GeodeMiner is Ownable {
     }
 
    
-    function harvestAll() public payable nonReentrant {
+    function harvestAll() public payable {
         uint256 length = poolInfo.length;
         uint256 totalPending = 0;
         
@@ -282,7 +284,7 @@ contract GeodeMiner is Ownable {
         uint256 sTokenFee = 0;
         if (feeOnClaimEnabled && totalPending > 0) {
             uint256 geodePriceInS = geodeOracle.twap(address(geode), 1e18);
-            sTokenFee = (geodePriceInS.mul(totalPending).div(1e18)).mul(feePercentage).div(10000);
+            sTokenFee = (geodePriceInS.mul(totalPending).div(1e18)).mul(ClaimFee).div(10000);
             require(msg.value >= sTokenFee, "Insufficient S for fee");
         } else {
             require(msg.value == 0, "Fee not required when disabled");
@@ -323,7 +325,7 @@ contract GeodeMiner is Ownable {
 }
 
         // Fee-on-claim harvest function that accepts S as payment
-    function harvest(uint256 _pid) public payable nonReentrant {
+    function harvest(uint256 _pid) public payable {
     PoolInfo storage pool = poolInfo[_pid]; 
     UserInfo storage user = userInfo[_pid][msg.sender];
     updatePool(_pid);
@@ -345,7 +347,7 @@ contract GeodeMiner is Ownable {
         uint256 sTokenFee = 0;
         if (feeOnClaimEnabled) {
             uint256 geodePriceInS = geodeOracle.twap(address(geode), 1e18);
-            sTokenFee = (geodePriceInS.mul(totalPending).div(1e18)).mul(feePercentage).div(2000);
+            sTokenFee = (geodePriceInS.mul(totalPending).div(1e18)).mul(ClaimFee).div(10000);
             require(msg.value >= sTokenFee, "Insufficient S for fee");
         } else {
             require(msg.value == 0, "Fee not required when disabled");
@@ -396,7 +398,7 @@ contract GeodeMiner is Ownable {
         // Simple setter for fee on claim percentage
         function setFeeOnClaim(uint256 _feeOnClaim) external onlyOwner {
             require(_feeOnClaim <= 5000, "Fee too high"); // Max 50%
-            feeOnClaim = _feeOnClaim;
+            ClaimFee = _feeOnClaim;
         }
 
         // Toggle fee on claim on/off
@@ -411,11 +413,11 @@ contract GeodeMiner is Ownable {
 
     // Safe Geode transfer function, just in case if rounding error causes pool to not have enough Geodes.
     function safeGeodeTransfer(address _to, uint256 _amount) internal {
-        uint256 GeodeBal = Geode.balanceOf(address(this));
+        uint256 GeodeBal = geode.balanceOf(address(this));
         if (_amount > GeodeBal) {
-            Geode.transfer(_to, GeodeBal);
+            geode.transfer(_to, GeodeBal);
         } else {
-            Geode.transfer(_to, _amount);
+            geode.transfer(_to, _amount);
         }
     }
   
