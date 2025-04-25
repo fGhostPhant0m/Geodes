@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/**
+ * @title IStrategy
+ * @notice Interface for strategies that integrate with various DeFi protocols
+ */
+interface IStrategy {
+    /**
+     * @notice Deposits tokens into the strategy
+     * @param _lpToken Address of LP token to deposit
+     * @param _amount Amount of tokens to deposit
+     */
+    function deposit(address _lpToken, uint256 _amount) external;
+    
+    /**
+     * @notice Withdraws tokens from the strategy
+     * @param _amount Amount of tokens to withdraw
+     * @param _lpToken Address of LP token to withdraw
+     */
+    function withdraw(uint256 _amount, address _lpToken) external;
+    
+    /**
+     * @notice Returns the total assets held by the strategy for a specific token
+     * @param _lpToken Address of LP token
+     * @return Total amount of assets held by the strategy
+     */
+    function _totalAssets(address _lpToken) external view returns (uint256);
+}
